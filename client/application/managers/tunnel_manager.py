@@ -89,7 +89,15 @@ def host_listed(host: str, domains) -> bool:
 
 
 def build_pac(domains, port: int) -> str:
-    """The browser's routing rules. Only listed hosts go to the proxy."""
+    """The browser's routing rules. Only listed hosts go to the proxy.
+
+    "PROXY ...; DIRECT", never "PROXY ..." alone. A browser keeps the PAC it
+    last read, and with the proxy gone — the app crashed, quit without
+    restoring the setting, or was killed — a bare PROXY line left the listed
+    site unreachable: ERR_PROXY_CONNECTION_FAILED, client area and all, seen
+    on a real Mac. With DIRECT after it the browser falls back to the
+    person's own IP, which is exactly "app not connected".
+    """
     exact = [d for d in domains if not d.startswith("*.")]
     suffix = [d[1:] for d in domains if d.startswith("*.")]   # ".example.org"
     return (
@@ -99,11 +107,11 @@ def build_pac(domains, port: int) -> str:
         f"  var exact = {json.dumps(exact)};\n"
         f"  var suffix = {json.dumps(suffix)};\n"
         "  for (var i = 0; i < exact.length; i++)\n"
-        f"    if (host == exact[i]) return \"PROXY 127.0.0.1:{port}\";\n"
+        f"    if (host == exact[i]) return \"PROXY 127.0.0.1:{port}; DIRECT\";\n"
         "  for (var j = 0; j < suffix.length; j++)\n"
         "    if (host.length > suffix[j].length &&\n"
         "        host.substring(host.length - suffix[j].length) == suffix[j])\n"
-        f"      return \"PROXY 127.0.0.1:{port}\";\n"
+        f"      return \"PROXY 127.0.0.1:{port}; DIRECT\";\n"
         "  return \"DIRECT\";\n"
         "}\n"
     )

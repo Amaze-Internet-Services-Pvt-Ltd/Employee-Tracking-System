@@ -269,6 +269,10 @@ def main():
     # ── the PAC file itself is valid JavaScript with the right answers ──
     pac = tm.build_pac(["portal.99rdp.com", "*.example.org"], 47821)
     check("PAC wildcard rule is written as a suffix", '".example.org"' in pac)
+    # The proxy gone (app crashed or killed) must not take the site down.
+    check("every PROXY answer falls back to DIRECT",
+          pac.count("PROXY 127.0.0.1:47821; DIRECT") == 2
+          and "PROXY 127.0.0.1:47821\";" not in pac, pac)
 
     print(f"\n{'ALL PASS' if failures == 0 else f'{failures} FAILURE(S)'}")
     return 0 if failures == 0 else 1
