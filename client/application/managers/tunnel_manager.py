@@ -18,10 +18,13 @@ people's own laptops, so a VPN driver is not an option. Instead:
      and joins the two. The browser's TLS runs inside, end to end with the
      site: neither this app nor the server can read the page.
 
-SIGNED OUT MEANS NO ACCESS — on three independent counts. The PAC turns every
-site DIRECT (so WHMCS is reached from the person's own IP and refused by the
-web protection); the proxy refuses CONNECT; and the server refuses the token
-and has already closed any tunnel the session had. A crashed app is covered
+SIGNED OUT MEANS THE PERSON'S OWN IP, NOT A BLOCKED SITE. The listed host is
+also the customers' client area; only /admin/* is staff-only, and HTTPS hides
+the path from any proxy. So the app decides only WHICH IP the site sees, and
+the web-protection rule decides what that IP may open. Signed out, the PAC
+turns every site DIRECT, a browser still holding the old PAC is carried
+direct by the proxy, and the server has already closed the session's tunnels.
+The client area keeps working and /admin is refused. A crashed app is covered
 too: the PAC address stops answering, browsers fall back to direct, and the
 server stops hearing the heartbeat within two minutes.
 
@@ -225,15 +228,27 @@ class _Handler(socketserver.BaseRequestHandler):
         port = int(port_text) if port_text.isdigit() else 0
         if port != 443 or not host_listed(host, mgr.domains):
             return self._reply(403, f"{host} is not sent through the office server.")
+        # SIGNED OUT, OR THE TUNNEL REFUSED: GO DIRECT, NEVER BLOCK.
+        #
+        # The same host serves customers too (portal.99rdp.com is the client
+        # area; only /admin/* is staff-only). A browser that still holds the
+        # PAC from before sign-out sends the site here, and refusing it broke
+        # the whole portal — "Ye galat hai, ye URL clients v open krta hai".
+        # HTTPS hides the path from a proxy, so /admin cannot be told apart
+        # here; the web-protection rule does that, by IP. Direct means the
+        # employee's own IP: the client area opens, /admin is refused there.
+        upstream, leftover = None, b""
         token = mgr.token()
-        if not token:
-            return self._reply(403, "Sign in to Amaze Connect to open this site.")
-
-        try:
-            upstream, leftover = mgr.open_upstream(host, port, token)
-        except Exception as error:
-            _log(f"{host} refused — {error}")
-            return self._reply(502, f"Office server: {error}")
+        if token:
+            try:
+                upstream, leftover = mgr.open_upstream(host, port, token)
+            except Exception as error:
+                _log(f"{host} not through the office server, going direct — {error}")
+        if upstream is None:
+            try:
+                upstream = mgr.open_direct(host, port)
+            except OSError as error:
+                return self._reply(502, f"{host} could not be reached: {error}")
 
         client.settimeout(None)
         try:
@@ -542,6 +557,13 @@ class TunnelManager:
 
     def open_upstream(self, host, port, token):
         return open_upstream(host, port, token, self._base_url)
+
+    @staticmethod
+    def open_direct(host, port):
+        """Straight to the site from this machine, as if there were no proxy."""
+        sock = socket.create_connection((host, port), timeout=15)
+        sock.settimeout(None)
+        return sock
 
     def _track(self, s):
         with self._lock:

@@ -86,6 +86,37 @@ class FakeOfficeServer:
         conn.close()
 
 
+class DirectSite:
+    """Stands in for the site reached straight from the laptop."""
+
+    def __init__(self):
+        self.sock = socket.socket()
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.listen(16)
+        self.port = self.sock.getsockname()[1]
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def _loop(self):
+        while True:
+            try:
+                conn, _ = self.sock.accept()
+            except OSError:
+                return
+            threading.Thread(target=self._serve, args=(conn,), daemon=True).start()
+
+    @staticmethod
+    def _serve(conn):
+        try:
+            while True:
+                data = conn.recv(4096)
+                if not data:
+                    break
+                conn.sendall(b"direct:" + data)
+        except OSError:
+            pass
+        conn.close()
+
+
 class RecordingProxySetting:
     def __init__(self):
         self.installed = []
@@ -139,6 +170,8 @@ def main():
         base_url=f"http://127.0.0.1:{office.port}/api",
         fetch_domains=lambda: ["portal.99rdp.com"],
     )
+    direct = DirectSite()
+    mgr.open_direct = lambda host, port: socket.create_connection(("127.0.0.1", direct.port))
     mgr.start()
     check("the local proxy is listening on a fixed port",
           mgr.port in tm.PREFERRED_PORTS, str(mgr.port))
@@ -177,11 +210,13 @@ def main():
           reply[:80])
     raw.close()
 
-    # The server refusing (session ended there first) reaches the browser.
+    # The server refusing (session ended there first): the site still opens,
+    # from the laptop's own IP — the client area must never break.
     token["value"] = "stale-token"
     s4, status, body = connect_through(mgr.port, "portal.99rdp.com:443")
-    check("a token the server refuses gives the browser a reason",
-          status == 502 and "Sign in to Amaze Connect" in body, f"{status} {body}")
+    s4.sendall(b"hi")
+    check("a token the server refuses goes direct instead of failing",
+          status == 200 and s4.recv(100) == b"direct:hi", f"{status} {body}")
     s4.close()
     token["value"] = "good-token"
 
@@ -195,15 +230,21 @@ def main():
     check("signing out closes the WHMCS connection already open", gone)
     s.close()
 
+    before = len(office.requests)
     s5, status, _ = connect_through(mgr.port, "portal.99rdp.com:443")
-    check("and a new one is refused", status == 403, str(status))
+    s5.sendall(b"client area")
+    check("signed out, the portal still opens — direct, for the client area",
+          status == 200 and s5.recv(100) == b"direct:client area", str(status))
+    check("and not through the office server", len(office.requests) == before)
     s5.close()
     pac = urllib.request.urlopen(f"http://127.0.0.1:{mgr.port}/ets.pac", timeout=5).read().decode()
     check("the PAC now sends every site direct", "portal.99rdp.com" not in pac)
 
     mgr.start()
     s6, status, _ = connect_through(mgr.port, "portal.99rdp.com:443")
-    check("signing in again opens it again", status == 200, str(status))
+    s6.sendall(b"x")
+    check("signing in again sends it through the office server again",
+          status == 200 and s6.recv(100) == b"echo:x", str(status))
     s6.close()
 
     # ── a list that cannot be fetched does not drop what was there ──────
