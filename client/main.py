@@ -174,6 +174,17 @@ def main():
 
     app.aboutToQuit.connect(drain_every_worker)
 
+    # The office tunnel's proxy setting goes back to what it was, and the
+    # local proxy closes — see tunnel_manager.
+    def stop_tunnel():
+        try:
+            from client.application.managers.tunnel_manager import TunnelManager
+            TunnelManager.app_quitting()
+        except Exception:
+            pass
+
+    app.aboutToQuit.connect(stop_tunnel)
+
 
     _warm_native_modules()
 

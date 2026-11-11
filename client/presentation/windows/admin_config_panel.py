@@ -1647,6 +1647,7 @@ class _ConfigTab(QWidget):
         self._load_employees()
         self._refresh_holidays()
         self._refresh_retention()
+        self._refresh_tunnel_sites()
         self._refresh_alert_settings()
         self._refresh_alert_email_settings()
         self._refresh_upcoming()
@@ -2155,6 +2156,100 @@ class _ConfigTab(QWidget):
         _track_worker(self._workers, w)
         w.start()
 
+    # ── Office tunnel ────────────────────────────────────────────────────
+    #
+    # The sites that open only through the office server, while signed in to
+    # Amaze Connect (WHMCS). See client/application/managers/tunnel_manager.
+    def _build_tunnel_section(self) -> QFrame:
+        self._tunnel_edit = QPlainTextEdit()
+        self._tunnel_edit.setPlaceholderText("portal.99rdp.com\n*.example.com")
+        self._tunnel_edit.setFixedHeight(110)
+        self._tunnel_edit.setTabChangesFocus(True)
+
+        self._tunnel_status = QLabel("Loading…")
+        self._tunnel_status.setWordWrap(True)
+        self._tunnel_status.setStyleSheet(
+            f"color:{C['text_muted']}; font-size:12px; background:transparent;"
+        )
+
+        save = _btn("Save sites", variant="primary", height=36)
+        save.clicked.connect(self._save_tunnel_sites)
+        self._tunnel_save_btn = save
+        row = QWidget()
+        row.setObjectName("tunRow")
+        row.setStyleSheet("QWidget#tunRow { background: transparent; }")
+        row_lay = QHBoxLayout(row)
+        row_lay.setContentsMargins(0, 0, 0, 0)
+        row_lay.addStretch()
+        row_lay.addWidget(save)
+
+        return self._build_section(
+            "shield", "Office tunnel  ·  applies to everyone",
+            "These sites open through the office server, and only while the "
+            "person is signed in to Amaze Connect. The site sees the server's "
+            "IP, so the web protection can allow that IP alone. Every other "
+            "site goes direct. One site per line; a full URL pasted from the "
+            "address bar is fine, only the site name is kept. \"*.\" in front "
+            "covers every subdomain.",
+            [
+                self._setting_row("Sites", "Signing out, force logout or "
+                                  "suspending closes them at once.",
+                                  self._tunnel_edit),
+                row,
+                self._tunnel_status,
+            ],
+        )
+
+    def _refresh_tunnel_sites(self):
+        w = _FetchWorker(f"{API_BASE_URL}/admin/tunnel-domains")
+
+        def fill(data: dict):
+            domains = data.get("domains") or []
+            self._tunnel_edit.setPlainText("\n".join(domains))
+            when = _fmt_ts(data.get("updated_at"), fallback="")
+            who = data.get("updated_by") or ""
+            self._tunnel_status.setText(
+                (f"{len(domains)} site(s) go through the office server."
+                 if domains else "No sites — the tunnel is off for everyone.")
+                + (f"  Last changed {when}" + (f" by {who}." if who else ".")
+                   if when else "")
+            )
+
+        def failed(error: str):
+            self._tunnel_status.setText(
+                "Only a super admin can view or change the tunnel sites."
+                if "403" in str(error) else f"Could not load the tunnel sites: {error}"
+            )
+            self._tunnel_edit.setEnabled(False)
+            self._tunnel_save_btn.setEnabled(False)
+
+        w.result.connect(fill)
+        w.error.connect(failed)
+        _track_worker(self._workers, w)
+        w.start()
+
+    def _save_tunnel_sites(self):
+        lines = [ln.strip() for ln in self._tunnel_edit.toPlainText().splitlines()]
+        body = {"domains": [ln for ln in lines if ln]}
+        self._tunnel_save_btn.setEnabled(False)
+        self._tunnel_status.setText("Saving…")
+        w = _PostWorker(f"{API_BASE_URL}/admin/tunnel-domains", body)
+
+        def done(result: dict):
+            self._tunnel_save_btn.setEnabled(True)
+            if result.get("success"):
+                self._refresh_tunnel_sites()
+            else:
+                self._tunnel_status.setText(result.get("message", "Could not save."))
+
+        w.result.connect(done)
+        w.error.connect(lambda e: (
+            self._tunnel_save_btn.setEnabled(True),
+            self._tunnel_status.setText(f"Could not reach the server: {e}"),
+        ))
+        _track_worker(self._workers, w)
+        w.start()
+
     # ── Holidays ─────────────────────────────────────────────────────────
     #
     # Company-wide, unlike everything else on this page, which is why it
@@ -2470,6 +2565,7 @@ class _ConfigTab(QWidget):
         body.addWidget(self._build_alerts_section())
         body.addWidget(self._email_section())
         body.addWidget(self._build_retention_section())
+        body.addWidget(self._build_tunnel_section())
 
         body.addWidget(self._build_holidays_section())
 

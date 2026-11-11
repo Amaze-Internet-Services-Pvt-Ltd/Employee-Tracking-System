@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const { pageOf, limitOf, idOf, textOf } = require("../utils/request_params");
 const { endSession, markLoggedIn } = require("../utils/session");
+const tunnel = require("../utils/tunnel");
 const { isOnlineSql, MAX_SHIFT_HOURS } = require("../utils/presence");
 const live = require("../utils/live_activity");
 const { closeShiftFor } = require("../utils/attendance_cleanup");
@@ -1113,6 +1114,79 @@ exports.saveRetention = async (req, res) => {
         ).catch(() => {});
 
         return res.json({ success: true, message: "Retention updated" });
+    } catch (err) {
+        console.error("[500]", req.method, req.originalUrl, err.message);
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
+
+/**
+ * The office tunnel's site list — see utils/tunnel.
+ *
+ * Saved whole rather than edited entry by entry: it is a short list, and one
+ * write means the app never sees half of a change.
+ */
+exports.getTunnelDomains = async (req, res) => {
+    try {
+        const domains = await tunnel.getDomains(pool, { fresh: true });
+        const row = await pool.query(
+            `SELECT updated_at, updated_by FROM app_settings WHERE key = $1`,
+            [tunnel.DOMAINS_KEY]
+        );
+        return res.json({
+            success: true,
+            domains,
+            updated_at: row.rows[0]?.updated_at || null,
+            updated_by: row.rows[0]?.updated_by || null,
+        });
+    } catch (err) {
+        console.error("[500]", req.method, req.originalUrl, err.message);
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
+
+exports.saveTunnelDomains = async (req, res) => {
+    const raw = req.body?.domains;
+    if (!Array.isArray(raw)) {
+        return res.status(400).json({ success: false, message: "domains must be a list" });
+    }
+    const domains = [];
+    for (const item of raw) {
+        // Somebody pasting the whole URL from the address bar is the likely
+        // case — "https://portal.99rdp.com/admin/" — so keep only the host.
+        let text = String(item || "").trim();
+        if (!text) continue;
+        text = text.replace(/^[a-z]+:\/\//i, "").split(/[/?#:]/)[0];
+        const name = tunnel.normaliseDomain(text);
+        if (!name) {
+            return res.status(400).json({
+                success: false,
+                message: `"${String(item).slice(0, 80)}" is not a site name (for example portal.99rdp.com)`,
+            });
+        }
+        if (!domains.includes(name)) domains.push(name);
+    }
+    if (domains.length > tunnel.MAX_DOMAINS) {
+        return res.status(400).json({
+            success: false,
+            message: `At most ${tunnel.MAX_DOMAINS} sites`,
+        });
+    }
+    try {
+        await pool.query(
+            `INSERT INTO app_settings (key, value, updated_at, updated_by)
+             VALUES ($1, $2, NOW(), $3)
+             ON CONFLICT (key) DO UPDATE
+                 SET value = $2, updated_at = NOW(), updated_by = $3`,
+            [tunnel.DOMAINS_KEY, JSON.stringify(domains), req.employee?.employee_id || null]
+        );
+        tunnel.forgetDomains();
+        await pool.query(
+            `INSERT INTO activity_logs (employee_id, activity) VALUES ($1, $2)`,
+            [req.employee?.employee_id || null,
+             `TUNNEL SITES CHANGED : ${domains.join(", ") || "(none)"}`]
+        ).catch(() => {});
+        return res.json({ success: true, domains, message: "Tunnel sites saved" });
     } catch (err) {
         console.error("[500]", req.method, req.originalUrl, err.message);
         return res.status(500).json({ success: false, message: "Internal server error" });

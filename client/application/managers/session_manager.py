@@ -68,6 +68,13 @@ class SessionManager:
         cls.designation = designation
         cls.is_authenticated = True
         cls.get_device_id()
+        # WHMCS and the other listed sites open through the office server
+        # only while signed in — see tunnel_manager. Off in tests.
+        try:
+            from client.application.managers.tunnel_manager import TunnelManager
+            TunnelManager.signed_in()
+        except Exception:
+            pass
 
     @classmethod
     def clear_session(cls):
@@ -79,4 +86,9 @@ class SessionManager:
         cls.shift_start = None
         cls.shift_end = None
         cls.is_authenticated = False
+        try:
+            from client.application.managers.tunnel_manager import TunnelManager
+            TunnelManager.signed_out()
+        except Exception:
+            pass
         # device_id intentionally keep karo (machine-specific rehta hai)

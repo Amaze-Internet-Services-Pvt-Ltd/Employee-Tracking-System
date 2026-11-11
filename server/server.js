@@ -15,6 +15,8 @@ const chatRoutes       = require("./routes/chat.routes");
 const profileRoutes    = require("./routes/profile.routes");
 const leaveRoutes      = require("./routes/leave.routes");
 const payrollRoutes    = require("./routes/payroll.routes");
+const vpnRoutes        = require("./routes/vpn.routes");
+const tunnel           = require("./utils/tunnel");
 const { applyPendingMigrations, migrationStatus } = require("./utils/migrate");
 
 // Startup env validation
@@ -190,6 +192,7 @@ app.use("/api/chat",        verifyToken, chatRoutes);
 app.use("/api/profile",     verifyToken, profileRoutes);
 app.use("/api/leave",       verifyToken, leaveRoutes);
 app.use("/api/payroll",     verifyToken, payrollRoutes);
+app.use("/api/vpn",         verifyToken, vpnRoutes);
 
 app.use((req, res) => {
     res.status(404).json({ success: false, message: `Route not found: ${req.method} ${req.url}` });
@@ -265,6 +268,10 @@ const PORT = process.env.PORT || 8000;
 const server = app.listen(PORT, () => {
     console.log(`🚀 ETS Backend running on port ${PORT}`);
 });
+
+// The office tunnel (WHMCS through this server's IP) is an HTTP upgrade on
+// /api/vpn/tunnel, not an Express route — see utils/tunnel.
+tunnel.attach(server, pool);
 
 const shutdown = (signal) => {
     console.log(`[${signal}] Graceful shutdown initiated...`);

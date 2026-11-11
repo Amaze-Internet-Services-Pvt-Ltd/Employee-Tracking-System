@@ -90,6 +90,11 @@ router.get("/upcoming/:employee_id", adminCtrl.getUpcomingDays);
 router.get("/retention",  superAdminOnly, adminCtrl.getRetention);
 router.post("/retention", superAdminOnly, adminCtrl.saveRetention);
 
+// The sites sent through the office tunnel (WHMCS and the like). Super admin
+// only: the list decides what this server's IP is lent out for.
+router.get("/tunnel-domains",  superAdminOnly, adminCtrl.getTunnelDomains);
+router.post("/tunnel-domains", superAdminOnly, adminCtrl.saveTunnelDomains);
+
 // Reports
 router.get("/reports/attendance", reportCtrl.getAttendanceReport);
 // Administrative actions over a period — who reset what, who deleted what.

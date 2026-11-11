@@ -43,6 +43,8 @@
  * NOT for force-logout, logout-everywhere, password reset or suspend: those
  * mean "end whatever is current, whoever holds it", which is endSession.
  */
+const tunnel = require("./tunnel");
+
 async function endSessionForToken(db, employeeId, token) {
     const result = await db.query(
         `UPDATE active_sessions SET token = NULL
@@ -57,6 +59,8 @@ async function endSessionForToken(db, employeeId, token) {
             `UPDATE employees SET is_logged_in = FALSE WHERE employee_id = $1`,
             [employeeId]
         );
+        // The office tunnel rides on the session; it ends with it.
+        tunnel.closeFor(employeeId);
     }
     return result.rowCount > 0;
 }
@@ -74,6 +78,11 @@ async function endSession(db, employeeId) {
         `UPDATE employees SET is_logged_in = FALSE WHERE employee_id = $1`,
         [employeeId]
     );
+    // Force logout, suspend, password reset: WHMCS closes the same moment.
+    // Inside a transaction that later rolls back this has still closed the
+    // tunnels — harmless, the browser simply reconnects through a session
+    // that is still valid.
+    tunnel.closeFor(employeeId);
 }
 
 /** The other direction, for completeness — used by login. */
