@@ -2164,6 +2164,9 @@ class _ConfigTab(QWidget):
         self._tunnel_edit = QPlainTextEdit()
         self._tunnel_edit.setPlaceholderText("portal.99rdp.com\n*.example.com")
         self._tunnel_edit.setFixedHeight(110)
+        # Full width, not a setting row: those fix their input at 104px,
+        # which broke "portal.99rdp.com" in two.
+        self._tunnel_edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self._tunnel_edit.setTabChangesFocus(True)
 
         self._tunnel_status = QLabel("Loading…")
@@ -2192,13 +2195,29 @@ class _ConfigTab(QWidget):
             "address bar is fine, only the site name is kept. \"*.\" in front "
             "covers every subdomain.",
             [
-                self._setting_row("Sites", "Signing out, force logout or "
-                                  "suspending closes them at once.",
-                                  self._tunnel_edit),
+                self._tunnel_sites_block(),
                 row,
                 self._tunnel_status,
             ],
         )
+
+    def _tunnel_sites_block(self) -> QWidget:
+        block = QWidget()
+        block.setObjectName("tunSites")
+        block.setStyleSheet("QWidget#tunSites { background: transparent; }")
+        lay = QVBoxLayout(block)
+        lay.setContentsMargins(0, 4, 0, 4)
+        lay.setSpacing(6)
+        name = QLabel("Sites  ·  one per line")
+        name.setStyleSheet(f"color:{C['text_primary']}; font-size:13px; font-weight:600;"
+                           " background:transparent;")
+        hint = QLabel("Signing out, force logout or suspending closes them at once.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color:{C['text_muted']}; font-size:12px; background:transparent;")
+        lay.addWidget(name)
+        lay.addWidget(hint)
+        lay.addWidget(self._tunnel_edit)
+        return block
 
     def _refresh_tunnel_sites(self):
         w = _FetchWorker(f"{API_BASE_URL}/admin/tunnel-domains")
