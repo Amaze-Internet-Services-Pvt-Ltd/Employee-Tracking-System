@@ -274,6 +274,38 @@ def main():
           pac.count("PROXY 127.0.0.1:47821; DIRECT") == 2
           and "PROXY 127.0.0.1:47821\";" not in pac, pac)
 
+    # ── a setting left behind by a killed app is not "the previous one" ─
+    # Seen on a real Mac: an instance killed before it could restore left
+    # our PAC address set (switched off). The next launch recorded nothing
+    # to go back to, so quitting left the setting on. networksetup is faked
+    # here — this must never touch the machine running the test.
+    class FakeMac(tm.SystemProxy):
+        current = {"Wi-Fi": ("http://127.0.0.1:47821/ets.pac", False)}
+
+        @staticmethod
+        def _mac_services():
+            return ["Wi-Fi"]
+
+        @staticmethod
+        def _mac_current(svc):
+            return FakeMac.current[svc]
+
+        def _mac_run(self, commands):
+            FakeMac.current["Wi-Fi"] = ("http://127.0.0.1:47821/ets.pac", True)
+            return True
+
+    ran = []
+    real_run = tm.subprocess.run
+    tm.subprocess.run = lambda cmd, **kw: ran.append(cmd)
+    try:
+        fake = FakeMac(os.path.join(os.environ["ETS_DATA_DIR"], "fake_state.json"))
+        fake._mac_install("http://127.0.0.1:47821/ets.pac")
+        fake._mac_restore()
+    finally:
+        tm.subprocess.run = real_run
+    check("a leftover of our own PAC is put back as OFF on quit",
+          ran == [["networksetup", "-setautoproxystate", "Wi-Fi", "off"]], str(ran))
+
     print(f"\n{'ALL PASS' if failures == 0 else f'{failures} FAILURE(S)'}")
     return 0 if failures == 0 else 1
 

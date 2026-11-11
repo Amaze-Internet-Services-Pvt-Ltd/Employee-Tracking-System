@@ -433,8 +433,13 @@ class SystemProxy:
             url, on = self._mac_current(svc)
             if url == pac_url and on:
                 continue
-            if svc not in previous and not str(url or "").startswith("http://127.0.0.1:478"):
-                previous[svc] = {"url": url, "on": on}
+            if svc not in previous:
+                # Our own address left behind (a crash, or an app killed
+                # before it could restore) is not somebody's setting to keep:
+                # record "nothing", so quitting turns it off instead of
+                # leaving it on forever.
+                ours = str(url or "").startswith("http://127.0.0.1:478")
+                previous[svc] = {"url": None, "on": False} if ours else {"url": url, "on": on}
             commands.append(["networksetup", "-setautoproxyurl", svc, pac_url])
             commands.append(["networksetup", "-setautoproxystate", svc, "on"])
         state["mac_previous"] = previous
@@ -468,8 +473,10 @@ class SystemProxy:
         if mode == "'auto'" and url == f"'{pac_url}'":
             return True
         state = self._load()
-        if "127.0.0.1:478" not in url:
-            state["linux_previous"] = {"mode": mode, "url": url}
+        if "linux_previous" not in state:
+            state["linux_previous"] = ({"mode": "'none'", "url": "''"}
+                                       if "127.0.0.1:478" in url
+                                       else {"mode": mode, "url": url})
         self._save(state)
         subprocess.run(["gsettings", "set", "org.gnome.system.proxy", "autoconfig-url", pac_url],
                        timeout=10, check=True)
