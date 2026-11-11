@@ -4,13 +4,11 @@ name: Build Cross-Platform Desktop Apps
 # the app reports about itself (client/core/config APP_VERSION) — otherwise
 # "which build is this?" has two answers.
 #
-# 1.0.3 carries the sign-out that closes the day's attendance row, the
-# screenshot upload retried an hour apart and three times a day rather than
-# every minute, one POSTPONED line per requested capture instead of one per
-# sync, and the employee panel without its logs, capture graph and monitoring
-# settings. The server side (997eb5b, 5dbd219) is already deployed. Released
-# under the tag v1.0.3, so the release job below publishes it.
-run-name: v1.0.3
+# 1.0.4 carries the office tunnel: WHMCS (portal.99rdp.com) opens through the
+# ETS server only while signed in, via a local proxy and the system PAC. The
+# server half has to be deployed first, with the /api/vpn/tunnel nginx block;
+# without it every employee's WHMCS fails. Released under the tag v1.0.4.
+run-name: v1.0.4
 # THE ARTIFACT NAMES NO LONGER CARRY A LABEL, deliberately.
 #
 # They used to ("test-5-Windows-Installer"), and twice a run was renamed
